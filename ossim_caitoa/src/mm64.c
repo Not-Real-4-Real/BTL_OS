@@ -197,19 +197,19 @@ int vmap_pgd_memset(struct pcb_t *caller, // process call
   /* TODO memset the page table with given pattern
    */
   for (pgit = 0; pgit < pgnum; pgit++)
-    {
-        addr_t cur_addr = addr + (addr_t)pgit * PAGING64_PAGESZ;
+  {
+    addr_t cur_addr = addr + (addr_t)pgit * PAGING64_PAGESZ;
 
-        /* Walk/allocate the 5-level page table tree,
-         * then write the dummy pattern into the PTE.
-         * alloc=1 so intermediate tables are created on demand. */
-        addr_t *pte = get_pte_ptr(caller->krnl->mm, cur_addr, 1);
+    /* Walk/allocate the 5-level page table tree,
+     * then write the dummy pattern into the PTE.
+     * alloc=1 so intermediate tables are created on demand. */
+    addr_t *pte = get_pte_ptr(caller->krnl->mm, cur_addr, 1);
 
-        if (pte == NULL)
-            return -1;
+    if (pte == NULL)
+      return -1;
 
-        *pte = (addr_t)pattern;
-    }
+    *pte = (addr_t)pattern;
+  }
   return 0;
 }
 
@@ -555,7 +555,7 @@ addr_t *get_pte_ptr(struct mm_struct *mm, addr_t vaddr, int alloc)
     if (!alloc)
       return NULL;
     pud_table = calloc(512, sizeof(addr_t *));
-    p4d_table[p4d_idx] = (addr_t)pud_table;
+    p4d_table[p4d_idx] = (addr_t *)pud_table;
   }
 
   // 3. PUD -> PMD
@@ -565,7 +565,7 @@ addr_t *get_pte_ptr(struct mm_struct *mm, addr_t vaddr, int alloc)
     if (!alloc)
       return NULL;
     pmd_table = calloc(512, sizeof(addr_t *));
-    pud_table[pud_idx] = (addr_t)pmd_table;
+    pud_table[pud_idx] = (addr_t *)pmd_table;
   }
 
   // 4. PMD -> PT
@@ -575,7 +575,7 @@ addr_t *get_pte_ptr(struct mm_struct *mm, addr_t vaddr, int alloc)
     if (!alloc)
       return NULL;
     pt_table = calloc(512, sizeof(addr_t));
-    pmd_table[pmd_idx] = (addr_t)pt_table;
+    pmd_table[pmd_idx] = (addr_t *)pt_table;
   }
 
   return &pt_table[pt_idx];

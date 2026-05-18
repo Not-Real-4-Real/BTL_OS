@@ -29,29 +29,30 @@ static pthread_mutex_t mmvm_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Add a free object address to a cache pool's free list */
 int enlist_kmem_free_obj(struct kcache_pool_struct *pool, addr_t obj_addr)
 {
-    struct vm_rg_struct *node = malloc(sizeof(struct vm_rg_struct));
-    if (!node) return -1;
+  struct vm_rg_struct *node = malloc(sizeof(struct vm_rg_struct));
+  if (!node)
+    return -1;
 
-    node->rg_start = obj_addr;
-    node->rg_end   = obj_addr + pool->size;
-    node->rg_next  = pool->free_obj_list;
-    pool->free_obj_list = node;
+  node->rg_start = obj_addr;
+  node->rg_end = obj_addr + pool->size;
+  node->rg_next = pool->free_obj_list;
+  pool->free_obj_list = node;
 
-    return 0;
+  return 0;
 }
 
 /* Get a free object from a cache pool's free list */
 int get_free_obj_from_pool(struct kcache_pool_struct *pool, addr_t *retaddr)
 {
-    if (pool->free_obj_list == NULL)
-        return -1;
+  if (pool->free_obj_list == NULL)
+    return -1;
 
-    struct vm_rg_struct *node = pool->free_obj_list;
-    *retaddr = node->rg_start;
-    pool->free_obj_list = node->rg_next;
-    free(node);
+  struct vm_rg_struct *node = pool->free_obj_list;
+  *retaddr = node->rg_start;
+  pool->free_obj_list = node->rg_next;
+  free(node);
 
-    return 0;
+  return 0;
 }
 
 /*enlist_vm_freerg_list - add new rg to freerg_list
@@ -102,7 +103,7 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *allo
   pthread_mutex_lock(&mmvm_lock);
   struct vm_rg_struct rgnode;
   struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
-  int inc_sz = 0;
+  // int inc_sz = 0;
 
   if (get_free_vmrg_area(caller, vmaid, size, &rgnode) == 0)
   {
@@ -449,7 +450,7 @@ int libkmem_malloc(struct pcb_t *caller, uint32_t size, uint32_t reg_index)
 {
   addr_t addr;
   /* passing vmaid = -1 which then pass it to get_vma_by_num() will return NULL and fail*/
-  //int val = __kmalloc(caller, -1, reg_index, size, &addr);
+  // int val = __kmalloc(caller, -1, reg_index, size, &addr);
   int val = __kmalloc(caller, 0, reg_index, size, &addr);
   if (val != 0)
   {
@@ -468,50 +469,50 @@ int libkmem_malloc(struct pcb_t *caller, uint32_t size, uint32_t reg_index)
  */
 addr_t __kmalloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *alloc_addr)
 {
-    struct krnl_t *krnl = caller->krnl;
-    struct mm_struct *kmm = krnl->mm;
+  struct krnl_t *krnl = caller->krnl;
+  struct mm_struct *kmm = krnl->mm;
 
-    /* Calculate number of contiguous frames needed */
-    int num_frames = (size + PAGING_PAGESZ - 1) / PAGING_PAGESZ;
+  /* Calculate number of contiguous frames needed */
+  int num_frames = (size + PAGING_PAGESZ - 1) / PAGING_PAGESZ;
 
-    /* Get contiguous physical frames — already implemented in mm-memphy.c */
-    addr_t first_fpn;
-    if (MEMPHY_get_contiguous_freefp(krnl->mram, num_frames, &first_fpn) != 0)
-        return -1;
+  /* Get contiguous physical frames — already implemented in mm-memphy.c */
+  addr_t first_fpn;
+  if (MEMPHY_get_contiguous_freefp(krnl->mram, num_frames, &first_fpn) != 0)
+    return -1;
 
-    /* Use sbrk of vma0 as the virtual base for this allocation */
-    struct vm_area_struct *cur_vma = get_vma_by_num(kmm, 0);
-    if (!cur_vma)
-        return -1;
+  /* Use sbrk of vma0 as the virtual base for this allocation */
+  struct vm_area_struct *cur_vma = get_vma_by_num(kmm, 0);
+  if (!cur_vma)
+    return -1;
 
-    addr_t vaddr = cur_vma->sbrk;
+  addr_t vaddr = cur_vma->sbrk;
 
-    /* Extend VMA if needed */
-    if (vaddr + size > cur_vma->vm_end)
-        cur_vma->vm_end += PAGING_PAGE_ALIGNSZ(size);
+  /* Extend VMA if needed */
+  if (vaddr + size > cur_vma->vm_end)
+    cur_vma->vm_end += PAGING_PAGE_ALIGNSZ(size);
 
-    /* Wire each contiguous frame into the page table
-     * using pte_set_fpn() — already implemented in mm64.c */
-    for (int i = 0; i < num_frames; i++)
-    {
-        addr_t page_vaddr = vaddr + (addr_t)i * PAGING_PAGESZ;
-        addr_t fpn = first_fpn + i;
+  /* Wire each contiguous frame into the page table
+   * using pte_set_fpn() — already implemented in mm64.c */
+  for (int i = 0; i < num_frames; i++)
+  {
+    addr_t page_vaddr = vaddr + (addr_t)i * PAGING_PAGESZ;
+    addr_t fpn = first_fpn + i;
 
-        if (pte_set_fpn(caller, PAGING_PGN(page_vaddr), fpn) != 0)
-            return -1;
-    }
+    if (pte_set_fpn(caller, PAGING_PGN(page_vaddr), fpn) != 0)
+      return -1;
+  }
 
-    /* Record in symbol table — same pattern as __alloc() */
-    if (rgid >= 0 && rgid < PAGING_MAX_SYMTBL_SZ)
-    {
-        kmm->symrgtbl[rgid].rg_start = vaddr;
-        kmm->symrgtbl[rgid].rg_end   = vaddr + size;
-    }
+  /* Record in symbol table — same pattern as __alloc() */
+  if (rgid >= 0 && rgid < PAGING_MAX_SYMTBL_SZ)
+  {
+    kmm->symrgtbl[rgid].rg_start = vaddr;
+    kmm->symrgtbl[rgid].rg_end = vaddr + size;
+  }
 
-    cur_vma->sbrk = vaddr + PAGING_PAGE_ALIGNSZ(size);
-    *alloc_addr = vaddr;
+  cur_vma->sbrk = vaddr + PAGING_PAGE_ALIGNSZ(size);
+  *alloc_addr = vaddr;
 
-    return 0;
+  return 0;
 }
 
 /*libkmem_cache_pool_create - create cache pool in kmem
@@ -529,7 +530,7 @@ int libkmem_cache_pool_create(struct pcb_t *caller, uint32_t size, uint32_t alig
 
   addr_t alloc_addr;
   /* passes vmaid = -1, which will return null and fail*/
-  //if (__kmalloc(caller, -1, cache_pool_id, total_size, &alloc_addr) != 0)
+  // if (__kmalloc(caller, -1, cache_pool_id, total_size, &alloc_addr) != 0)
   if (__kmalloc(caller, 0, cache_pool_id, total_size, &alloc_addr) != 0)
   {
     return -1;
