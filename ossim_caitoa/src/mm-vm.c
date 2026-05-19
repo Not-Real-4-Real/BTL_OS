@@ -144,19 +144,22 @@ int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
     return -1;
 
   addr_t old_end = cur_vma->vm_end;
-  addr_t new_end = old_end + PAGING_PAGE_ALIGNSZ(inc_sz);
   addr_t inc_amt = PAGING_PAGE_ALIGNSZ(inc_sz);
+  addr_t new_end = old_end + inc_amt;
   int incnumpage = inc_amt / PAGING_PAGESZ;
 
   if (validate_overlap_vm_area(caller, vmaid, old_end, new_end) < 0)
     return -1;
 
   cur_vma->vm_end = new_end;
-  cur_vma->sbrk = new_end; // Cập nhật break pointer
+  cur_vma->sbrk = new_end;
 
-  /* Map dải trang mới vào RAM */
+  struct framephy_struct *frm_lst = NULL;
+  if (alloc_pages_range(caller, incnumpage, &frm_lst) < 0)
+    return -1;
+
   struct vm_rg_struct *ret_rg = malloc(sizeof(struct vm_rg_struct));
-  if (vmap_page_range(caller, old_end, incnumpage, NULL, ret_rg) < 0)
+  if (vmap_page_range(caller, old_end, incnumpage, frm_lst, ret_rg) < 0)
     return -1;
 
   return 0;

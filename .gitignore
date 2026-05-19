@@ -1,3 +1,4 @@
 obj/
 *.lst
 os
+test_result.txt
