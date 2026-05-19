@@ -244,48 +244,70 @@ int libfree(struct pcb_t *proc, uint32_t reg_index)
  */
 int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
 {
-  /* 1. Lấy giá trị PTE hiện tại của trang yêu cầu */
   uint32_t pte = pte_get_entry(caller, pgn);
-
-  /* 2. Nếu trang chưa có trên RAM (Page Fault) */
   if (!PAGING_PAGE_PRESENT(pte))
-  {
-    addr_t vicpgn;
-    uint32_t vicpte;
-    int vicfpn;
-    int swp_type = 0; // assume default 0
-    addr_t swpfpn;
+  { /* Page is not online, make it actively living */
+    addr_t tgtfpn;
 
-    if (find_victim_page(caller->krnl->mm, &vicpgn) == -1)
+    /* CASE A: Check if MEMRAM has free frames */
+    if (MEMPHY_get_freefp(caller->krnl->mram, &tgtfpn) == 0)
     {
-      return -1;
+      /* RAM still has free space - just swap in without replacement */
+      addr_t swpfpn = PAGING_SWP(pte); /* Get swap offset from current PTE */
+
+      /* Copy target page from MEMSWP to MEMRAM */
+      __swap_cp_page(caller->krnl->active_mswp, swpfpn, caller->krnl->mram, tgtfpn);
+
+      /* Update target page PTE - mark as present in MEMRAM with frame number */
+      pte_set_fpn(caller, pgn, tgtfpn);
+
+      /* Add target page to FIFO list for future victim selection */
+      enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
     }
-
-    vicpte = pte_get_entry(caller, vicpgn);
-    vicfpn = PAGING_FPN(vicpte);
-
-    if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) == -1)
+    else
     {
-      return -1;
+      /* CASE B: MEMRAM is full - need page replacement */
+      addr_t vicpgn, swpfpn, vicfpn;
+      uint32_t vicpte;
+
+      /* Find victim page using FIFO */
+      if (find_victim_page(caller->krnl->mm, &vicpgn) == -1)
+      {
+        return -1;
+      }
+
+      /* Get victim page PTE and extract its frame number */
+      vicpte = pte_get_entry(caller, vicpgn);
+      vicfpn = PAGING_FPN(vicpte);
+
+      /* Get free frame in MEMSWP for victim page */
+      if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) == -1)
+      {
+        return -1;
+      }
+
+      /* Copy victim frame from MEMRAM to MEMSWP */
+      __swap_cp_page(caller->krnl->mram, vicfpn, caller->krnl->active_mswp, swpfpn);
+
+      /* Update victim page PTE - mark as swapped (swap type = 1) */
+      pte_set_swap(caller, vicpgn, 1, swpfpn);
+
+      /* Now the victim's frame in MEMRAM is free, reuse it for target page */
+      tgtfpn = vicfpn;
+
+      /* Get swap offset of target page (already in MEMSWP from previous access) */
+      swpfpn = PAGING_SWP(pte_get_entry(caller, pgn));
+
+      /* Copy target page from MEMSWP to MEMRAM (using freed frame) */
+      __swap_cp_page(caller->krnl->active_mswp, swpfpn, caller->krnl->mram, tgtfpn);
+
+      /* Update target page PTE - mark as present in MEMRAM with frame number */
+      pte_set_fpn(caller, pgn, tgtfpn);
+
+      /* Add target page to FIFO list for future victim selection */
+      enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
     }
-
-    __swap_cp_page(caller->krnl->mram, vicfpn, caller->krnl->active_mswp, swpfpn);
-
-    pte_set_swap(caller, vicpgn, swp_type, swpfpn);
-
-    if (PAGING_PTE_SWP(pte))
-    {
-      addr_t old_swp_off = PAGING_SWP(pte);
-      __swap_cp_page(caller->krnl->active_mswp, old_swp_off, caller->krnl->mram, vicfpn);
-
-      MEMPHY_put_freefp(caller->krnl->active_mswp, old_swp_off);
-    }
-
-    pte_set_fpn(caller, pgn, vicfpn);
-
-    enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
   }
-
   *fpn = PAGING_FPN(pte_get_entry(caller, pgn));
 
   return 0;
@@ -628,11 +650,9 @@ int libkmem_copy_from_user(struct pcb_t *caller, uint32_t source, uint32_t desti
   BYTE data;
   for (uint32_t i = 0; i < size; i++)
   {
-    // 1. Đọc từ vùng nhớ User (source)
     if (__read_user_mem(caller, -1, source, offset + i, &data) != 0)
       return -1;
 
-    // 2. Ghi vào vùng nhớ Kernel (destination)
     if (__write_kernel_mem(caller, -1, destination, i, data) != 0)
       return -1;
   }
