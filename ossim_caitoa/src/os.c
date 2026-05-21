@@ -199,18 +199,32 @@ static void read_config(const char *path)
 #ifdef MM_PAGING
 	int sit;
 #ifdef MM_FIXED_MEMSZ
-	/* We provide here a back compatible with legacy OS simulatiom config file
-	 * In which, it have no addition config line for Mema, keep only one line
-	 * for legacy info
-	 *  [time slice] [N = Number of CPU] [M = Number of Processes to be run]
+	/* In fixed-memory mode we use compile-time sizes, but the input file may
+	 * still include an optional memory configuration line for compatibility.
+	 * If that line exists, skip it without using the values.
 	 */
 	memramsz = 0x100000000;
 	memswpsz[0] = 0x1000000;
 	for (sit = 1; sit < PAGING_MAX_MMSWP; sit++)
 		memswpsz[sit] = 0;
+	{
+		long pos = ftell(file);
+		char line[256];
+		unsigned long a, b, c, d, e;
+		if (fgets(line, sizeof(line), file) != NULL)
+		{
+			int count = sscanf(line,
+							   FORMAT_ARG " " FORMAT_ARG " " FORMAT_ARG " " FORMAT_ARG " " FORMAT_ARG,
+							   &a, &b, &c, &d, &e);
+			if (count != 5)
+			{
+				fseek(file, pos, SEEK_SET);
+			}
+		}
+	}
 #else
-	/* Read input config of memory size: MEMRAM and upto 4 MEMSWP (mem swap)
-	 * Format: (size=0 result non-used memswap, must have RAM and at least 1 SWAP)
+	/* Read input config of memory size: MEMRAM and up to 4 MEMSWP (mem swap)
+	 * Format: (size=0 means unused memswap, must have RAM and at least 1 SWAP)
 	 *        MEM_RAM_SZ MEM_SWP0_SZ MEM_SWP1_SZ MEM_SWP2_SZ MEM_SWP3_SZ
 	 */
 	fscanf(file, FORMAT_ARG "\n", &memramsz);
