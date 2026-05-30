@@ -260,7 +260,11 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
       addr_t swpfpn = PAGING_SWP(pte); /* Get swap offset from current PTE */
 
       /* Copy target page from MEMSWP to MEMRAM */
-      __swap_cp_page(caller->krnl->active_mswp, swpfpn, caller->krnl->mram, tgtfpn);
+      struct sc_regs sregs;
+      sregs.a1 = SYSMEM_SWP_OP;
+      sregs.a2 = swpfpn;
+      sregs.a3 = tgtfpn;
+      _syscall(caller->krnl, caller->pid, 17, &sregs);
 
       /* Update target page PTE - mark as present in MEMRAM with frame number */
       pte_set_fpn(caller, pgn, tgtfpn);
@@ -291,7 +295,11 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
       }
 
       /* Copy victim frame from MEMRAM to MEMSWP */
-      __swap_cp_page(caller->krnl->mram, vicfpn, caller->krnl->active_mswp, swpfpn);
+      struct sc_regs sregs;
+      sregs.a1 = SYSMEM_SWP_OP;
+      sregs.a2 = vicfpn;
+      sregs.a3 = swpfpn;
+      _syscall(caller->krnl, caller->pid, 17, &sregs);
 
       /* Update victim page PTE - mark as swapped (swap type = 1) */
       pte_set_swap(caller, vicpgn, 1, swpfpn);
@@ -303,7 +311,10 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
       swpfpn = PAGING_SWP(pte_get_entry(caller, pgn));
 
       /* Copy target page from MEMSWP to MEMRAM (using freed frame) */
-      __swap_cp_page(caller->krnl->active_mswp, swpfpn, caller->krnl->mram, tgtfpn);
+      sregs.a1 = SYSMEM_SWP_OP;
+      sregs.a2 = swpfpn;
+      sregs.a3 = tgtfpn;
+      _syscall(caller->krnl, caller->pid, 17, &sregs);
 
       /* Update target page PTE - mark as present in MEMRAM with frame number */
       pte_set_fpn(caller, pgn, tgtfpn);
@@ -336,8 +347,15 @@ int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
     return -1; /* invalid page access */
 
   addr_t phyaddr = ((addr_t)fpn << PAGING_ADDR_FPN_LOBIT) + off;
-  if (MEMPHY_read(caller->krnl->mram, phyaddr, data) != 0)
+  struct sc_regs regs;
+  regs.a1 = SYSMEM_IO_READ;
+  regs.a2 = phyaddr;
+  regs.a3 = 0;
+
+  if (_syscall(caller->krnl, caller->pid, 17, &regs) != 0)
     return -1;
+
+  *data = (BYTE)regs.a3;
 
   return 0;
 }
@@ -361,9 +379,13 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
   if (pg_getpage(mm, pgn, &fpn, caller) != 0)
     return -1; /* invalid page access */
 
-  addr_t phyaddr = ((addr_t)fpn << PAGING_ADDR_FPN_LOBIT) + off;
-  if (MEMPHY_write(caller->krnl->mram, phyaddr, value) != 0)
-    return -1;
+  struct sc_regs regs;
+  regs.a1 = SYSMEM_IO_WRITE;
+  regs.a2 = phyaddr;
+  regs.a3 = value;
+
+  if (_syscall(caller->krnl, caller->pid, 17, &regs) != 0)
+      return -1;
 
   uint32_t pte = pte_get_entry(caller, pgn);
   SETBIT(pte, PAGING_PTE_DIRTY_MASK);
