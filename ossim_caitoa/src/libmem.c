@@ -301,8 +301,8 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
       sregs.a3 = swpfpn;
       _syscall(caller->krnl, caller->pid, 17, &sregs);
 
-      /* Update victim page PTE - mark as swapped (swap type = 1) */
-      pte_set_swap(caller, vicpgn, 1, swpfpn);
+      /* Update victim page PTE - mark as swapped */
+      pte_set_swap(caller, vicpgn, caller->krnl->active_mswp_id, swpfpn);
 
       /* Now the victim's frame in MEMRAM is free, reuse it for target page */
       tgtfpn = vicfpn;
@@ -379,6 +379,7 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
   if (pg_getpage(mm, pgn, &fpn, caller) != 0)
     return -1; /* invalid page access */
 
+  addr_t phyaddr = ((addr_t)fpn << PAGING_ADDR_FPN_LOBIT) + off;
   struct sc_regs regs;
   regs.a1 = SYSMEM_IO_WRITE;
   regs.a2 = phyaddr;
